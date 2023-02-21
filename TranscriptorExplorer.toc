@@ -1,0 +1,14 @@
+## Interface: 100005
+## Title: Transcriptor Explorer
+## Notes: Explore Transcriptor Logs
+## Author: Buds
+## Version: 0.1
+## Dependencies: Transcriptor
+## SavedVariables: TranscriptExplorerDB
+
+#Libs\LibStub.lua
+#Libs\CallbackHandler-1.0.lua
+#Libs\LibDataBroker-1.1.lua
+
+TranscriptorExplorer.xml
+TranscriptorExplorer.lua
