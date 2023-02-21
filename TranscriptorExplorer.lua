@@ -146,32 +146,10 @@ function TranscriptorExplorerPanelMixin:SelectLogView(option)
 				for i = 1, #category do
 					coroutine.yield()
 					self:LogEvent(category, i)
-					--[[
-          if type(line) == "string" then
-            if line:match("<.+> %[.+%] .+") then
-              self:LogEvent(line)
-            else
-              self:LogMessage(line)
-            end
-          end
-          ]]
-					--
 				end
 			end)
 			coroutineFrame:Show()
 		end
-		--[[
-    for i, line in ipairs(self.logData[option]) do
-      self:LogEvent(option, i)
-      if type(line) == "string" then
-        if line:match("<.+> %[.+%] .+") then
-          self:LogEvent(line)
-        else
-          self:LogMessage(line)
-        end
-      end
-    end
-    ]]
 		UIDropDownMenu_SetSelectedName(self.Log.Bar.ViewDropdown, option)
 	end
 end
@@ -303,6 +281,7 @@ function TranscriptorExplorerPanelMixin:InitializeLog()
 				event = elementData.event,
 				subevent = elementData.subevent,
 				displayEvent = GetDisplayEvent(elementData),
+				predicateFn = predicateFn,
 				enabled = true,
 			})
 		end
@@ -319,6 +298,14 @@ function TranscriptorExplorerPanelMixin:InitializeLog()
 				button.HideButton:SetScript("OnMouseDown", function(button, buttonName)
 					AddEventToFilter(self.Filter.ScrollBox, elementData)
 				end)
+
+				--[[
+				button:SetScript("OnClick", function(button, buttonName)
+					if buttonName == "RightButton" then
+						CopyToClipboard(elementData.line) -- protected :(
+					end
+				end)
+				]]
 			end)
 		end)
 
@@ -362,7 +349,7 @@ function TranscriptorExplorerPanelMixin:LogEvent(category, index)
 	elseif event:sub(1, 15) == "UNIT_SPELLCAST_" and subevent:sub(1, 12) == "PLAYER_SPELL" then
 		return
 	end
-	self.logDataProvider:Insert({
+	local elementData = {
 		id = self.idCounter(),
 		event = event,
 		subevent = event == "CLEU" and subevent or nil,
@@ -370,7 +357,13 @@ function TranscriptorExplorerPanelMixin:LogEvent(category, index)
 		timeSpent = timeSpent,
 		time = time,
 		line = category[index],
-	})
+	}
+	for _, data in self.filterDataProvider:Enumerate() do
+		if data.predicateFn(elementData) then
+			return
+		end
+	end
+	self.logDataProvider:Insert(elementData)
 end
 
 function TranscriptorExplorerPanelMixin:RemoveEventFromDataProvider(dataProvider, predicateFn)
