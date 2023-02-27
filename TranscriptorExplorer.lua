@@ -47,6 +47,7 @@ function TranscriptorExplorerPanelMixin:OnLoad()
 	ButtonFrameTemplate_HidePortrait(self)
 
 	self.logDataProvider = CreateDataProvider()
+	self.searchDataProvider = CreateDataProvider()
 
 	self.filterDataProvider = CreateDataProvider()
 	self.filterDataProvider:SetSortComparator(function(lhs, rhs)
@@ -90,9 +91,47 @@ function TranscriptorExplorerPanelMixin:ViewLog()
 end
 
 function TranscriptorExplorerPanelMixin:ViewFilter()
-	--self.Log.Bar.SearchBox:SetText("")
+	self.Log.Bar.SearchBox:SetText("")
 	self.Log:Hide()
 	self.Filter:Show()
+end
+
+function TranscriptorExplorerPanelMixin:DisplayEvents()
+	self.Log.Events:Show()
+	self.Log.Search:Hide()
+end
+
+function TranscriptorExplorerPanelMixin:DisplaySearch()
+	self.Log.Search:Show()
+	self.Log.Events:Hide()
+end
+
+function TranscriptorExplorerPanelMixin:TryAddToSearch(elementData, search)
+	local add = false
+	if search:len() < 5 then
+		return false
+	end
+	for word in search:upper():gmatch("([^, ]+)") do
+		if
+			word:len() > 0
+			and (
+				tostring(elementData.id):find(word, 1, true)
+				or (elementData.event and elementData.event:upper():find(word, 1, true))
+				or (elementData.subevent and elementData.subevent:upper():find(word, 1, true))
+				or (elementData.line and elementData.line:upper():find(word, 1, true))
+			)
+		then
+			add = true
+		else
+			return false
+		end
+	end
+
+	if add then
+		self.searchDataProvider:Insert(CopyTable(elementData, true))
+		return true
+	end
+	return false
 end
 
 function TranscriptorExplorerPanelMixin:LoadLog(logName, logData)
@@ -138,15 +177,19 @@ end
 
 function TranscriptorExplorerPanelMixin:SelectLogView(option)
 	self.logDataProvider:Flush()
+	self.searchDataProvider:Flush()
 	if self.logData[option] then
+		self.Log.Bar.SearchBox:Show()
 		self.selectedview = option
 		if not coroutineFrame:IsShown() then
 			co = coroutine.create(function()
 				local category = self.logData[option]
 				for i = 1, #category do
 					coroutine.yield()
+					self.Progress:SetText(("Loading %s / %s"):format(i, #category))
 					self:LogEvent(category, i)
 				end
+				self.Progress:SetText("")
 			end)
 			coroutineFrame:Show()
 		end
@@ -254,6 +297,47 @@ local function GetDisplayEvent(elementData)
 end
 
 function TranscriptorExplorerPanelMixin:InitializeLog()
+	self.Log.Bar.SearchBox:HookScript("OnEnterPressed", function(o)
+		self.searchDataProvider:Flush()
+
+		local text = self.Log.Bar.SearchBox:GetText()
+		if string.len(text) < 5 then
+			self:DisplayEvents()
+		else
+			self:DisplaySearch()
+
+			if not coroutineFrame:IsShown() then
+				co = coroutine.create(function()
+					for _, elementData in self.logDataProvider:Enumerate() do
+						coroutine.yield()
+						self.Progress:SetText("Searching..")
+						self:TryAddToSearch(elementData, text)
+					end
+					self.Progress:SetText("")
+				end)
+				coroutineFrame:Show()
+			end
+
+			local pendingSearch = self.pendingSearch
+			if pendingSearch then
+				self.pendingSearch = nil
+
+				local found = self.Log.Search.ScrollBox:ScrollToElementDataByPredicate(function(elementData)
+					return elementData.id == pendingSearch.id
+				end, ScrollBoxConstants.AlignCenter, ScrollBoxConstants.NoScrollInterpolation)
+
+				if found then
+					local button = self.Log.Search.ScrollBox:FindFrame(found)
+					if button then
+						button:Flash()
+					end
+				end
+			elseif self.Log.Search.ScrollBox:HasScrollableExtent() then
+				self.Log.Search.ScrollBox:ScrollToEnd(ScrollBoxConstants.NoScrollInterpolation)
+			end
+		end
+	end)
+
 	local function SetOnDataRangeChanged(scrollBox)
 		local function OnDataRangeChanged(sortPending)
 			SetScrollBoxButtonAlternateState(scrollBox)
@@ -262,6 +346,7 @@ function TranscriptorExplorerPanelMixin:InitializeLog()
 	end
 
 	SetOnDataRangeChanged(self.Log.Events.ScrollBox)
+	SetOnDataRangeChanged(self.Log.Search.ScrollBox)
 
 	local function AddEventToFilter(scrollBox, elementData)
 		local predicateFn = function(filterData)
@@ -286,7 +371,7 @@ function TranscriptorExplorerPanelMixin:InitializeLog()
 			})
 		end
 		self:RemoveEventFromDataProvider(self.logDataProvider, predicateFn)
-		--self:RemoveEventFromDataProvider(self.searchDataProvider, elementData.event)
+		self:RemoveEventFromDataProvider(self.searchDataProvider, predicateFn)
 	end
 
 	do
@@ -298,14 +383,6 @@ function TranscriptorExplorerPanelMixin:InitializeLog()
 				button.HideButton:SetScript("OnMouseDown", function(button, buttonName)
 					AddEventToFilter(self.Filter.ScrollBox, elementData)
 				end)
-
-				--[[
-				button:SetScript("OnClick", function(button, buttonName)
-					if buttonName == "RightButton" then
-						CopyToClipboard(elementData.line) -- protected :(
-					end
-				end)
-				]]
 			end)
 		end)
 
@@ -316,6 +393,27 @@ function TranscriptorExplorerPanelMixin:InitializeLog()
 		ScrollUtil.InitScrollBoxListWithScrollBar(self.Log.Events.ScrollBox, self.Log.Events.ScrollBar, view)
 
 		self.Log.Events.ScrollBox:SetDataProvider(self.logDataProvider)
+	end
+
+	do
+		local view = CreateScrollBoxListLinearView()
+		view:SetElementFactory(function(factory, elementData)
+			factory("TranscriptorLogEventButtonTemplate", function(button, elementData)
+				button:Init(elementData)
+
+				button.HideButton:SetScript("OnMouseDown", function(button, buttonName)
+					AddEventToFilter(self.Log.Search.ScrollBox, elementData)
+				end)
+			end)
+		end)
+
+		local pad = 2
+		local spacing = 2
+		view:SetPadding(pad, pad, pad, pad, spacing)
+
+		ScrollUtil.InitScrollBoxListWithScrollBar(self.Log.Search.ScrollBox, self.Log.Search.ScrollBar, view)
+
+		self.Log.Search.ScrollBox:SetDataProvider(self.searchDataProvider)
 	end
 end
 
@@ -364,16 +462,26 @@ function TranscriptorExplorerPanelMixin:LogEvent(category, index)
 		end
 	end
 	self.logDataProvider:Insert(elementData)
+	self:TryAddToSearch(elementData, self.Log.Bar.SearchBox:GetText())
 end
 
 function TranscriptorExplorerPanelMixin:RemoveEventFromDataProvider(dataProvider, predicateFn)
 	local index = dataProvider:GetSize()
-	while index >= 1 do
-		local elementData = dataProvider:Find(index)
-		if predicateFn(elementData) then
-			dataProvider:RemoveIndex(index)
-		end
-		index = index - 1
+	local total = index
+	if not coroutineFrame:IsShown() then
+		co = coroutine.create(function()
+			while index >= 1 do
+				coroutine.yield()
+				self.Progress:SetText(("Filtering %s / %s"):format(total-index, total))
+				local elementData = dataProvider:Find(index)
+				if predicateFn(elementData) then
+					dataProvider:RemoveIndex(index)
+				end
+				index = index - 1
+			end
+			self.Progress:SetText("")
+		end)
+		coroutineFrame:Show()
 	end
 end
 
@@ -381,11 +489,78 @@ local function FormatLine(id, message)
 	return string.format("%s %s", id, message)
 end
 
+local eventToSpellIDArg = {
+	CLEU = 6,
+	BigWigs_StartBar = 2,
+	BigWigs_Message = 2,
+	UNIT_SPELLCAST_SUCCEEDED = function(args)
+		local line = args[1]
+		local spellID = line:match("%[%[.-([^:]+)]%]")
+		return tonumber(spellID)
+	end,
+	UNIT_SPELLCAST_START = function(args)
+		local line = args[1]
+		local spellID = line:match("%[%[.-([^:]+)]%]")
+		return tonumber(spellID)
+	end,
+	UNIT_SPELLCAST_STOP = function(args)
+		local line = args[1]
+		local spellID = line:match("%[%[.-([^:]+)]%]")
+		return tonumber(spellID)
+	end,
+}
+
+local function AddSpellID(event, args)
+	local ret = eventToSpellIDArg[event]
+	if type(ret) == "number" then
+		local spellID = args[ret]
+		return tonumber(spellID)
+	elseif type(ret) == "function" then
+		return ret(args)
+	end
+end
+
 TranscriptorLogEventButtonMixin = {}
 
 function TranscriptorLogEventButtonMixin:OnLoad()
 	self.HideButton:ClearAllPoints()
 	self.HideButton:SetPoint("LEFT", self, "LEFT", 3, 0)
+end
+
+do
+	local menu
+	function TranscriptorLogEventButtonMixin:CreateContext()
+		local elementData = self.GetElementData()
+		menu = {
+			{
+				text = "copy line",
+				func = function()
+					self.EditBox:SetText(elementData.line)
+					self.EditBox:Show()
+				end,
+				notCheckable = true,
+			},
+			{
+				text = "print line in chat",
+				func = function()
+					print(elementData.line)
+				end,
+				notCheckable = true,
+			},
+		}
+		local spellID = AddSpellID(elementData.event, elementData.args)
+		if spellID then
+			tinsert(menu, {
+				text = "copy spellID",
+				func = function()
+					self.EditBox:SetText(spellID)
+					self.EditBox:Show()
+				end,
+				notCheckable = true,
+			})
+		end
+		return menu
+	end
 end
 
 local ArgumentColors = {
@@ -438,37 +613,6 @@ local function AddLineArguments(args)
 		return words[1]
 	end
 	return table.concat(words, ", ")
-end
-
-local eventToSpellIDArg = {
-	CLEU = 6,
-	BigWigs_StartBar = 2,
-	BigWigs_Message = 2,
-	UNIT_SPELLCAST_SUCCEEDED = function(args)
-		local line = args[1]
-		local spellID = line:match("%[%[.-([^:]+)]%]")
-		return tonumber(spellID)
-	end,
-	UNIT_SPELLCAST_START = function(args)
-		local line = args[1]
-		local spellID = line:match("%[%[.-([^:]+)]%]")
-		return tonumber(spellID)
-	end,
-	UNIT_SPELLCAST_STOP = function(args)
-		local line = args[1]
-		local spellID = line:match("%[%[.-([^:]+)]%]")
-		return tonumber(spellID)
-	end,
-}
-
-local function AddSpellID(event, args)
-	local ret = eventToSpellIDArg[event]
-	if type(ret) == "number" then
-		local spellID = args[ret]
-		return tonumber(spellID)
-	elseif type(ret) == "function" then
-		return ret(args)
-	end
 end
 
 function TranscriptorLogEventButtonMixin:Init(elementData)

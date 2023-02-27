@@ -87,7 +87,7 @@
         <FontString parentKey="RightLabel" inherits="GameFontHighlightSmall" justifyH="RIGHT">
           <Size y="20"/>
           <Anchors>
-            <Anchor point="RIGHT" x="-5"/>
+            <Anchor point="RIGHT" x="-25"/>
           </Anchors>
         </FontString>
         <FontString parentKey="LeftLabel" inherits="GameFontHighlightSmall" wordwrap="false" justifyH="LEFT">
@@ -106,7 +106,7 @@
       <Button parentKey="Icon">
         <Size x="20" y="20"/>
         <Anchors>
-          <Anchor point="RIGHT" relativeKey="$parent.RightLabel" relativePoint="LEFT" x="-2" />
+          <Anchor point="RIGHT" />
         </Anchors>
         <Layers>
           <Layer level="BACKGROUND">
@@ -123,9 +123,33 @@
           <OnLeave function="GameTooltip_Hide" />
         </Scripts>
       </Button>
+      <Frame name="TranscriptorContextDropDown" inherits="UIDropDownMenuTemplate"/>
+      <EditBox parentKey="EditBox" autoFocus="false" hidden="true">
+        <Anchors>
+          <Anchor point="TOPLEFT" relativeKey="$parent.LeftLabel" />
+          <Anchor point="BOTTOMRIGHT" relativeKey="$parent.LeftLabel"/>
+        </Anchors>
+        <Scripts>
+          <OnShow>
+            self:SetFocus()
+            self:GetParent().LeftLabel:Hide()
+            self:HighlightText()
+          </OnShow>
+          <OnEscapePressed function="EditBox_ClearFocus"/>
+          <OnEditFocusLost>
+            self:Hide()
+            self:GetParent().LeftLabel:Show()
+          </OnEditFocusLost>
+        </Scripts>
+        <FontString inherits="GameFontHighlight"/>
+      </EditBox>
     </Frames>
     <Scripts>
       <OnLoad method="OnLoad"/>
+      <OnMouseDown>
+      EasyMenu(self:CreateContext(), TranscriptorContextDropDown, "cursor", nil, nil, "MENU")
+      PlaySound(SOUNDKIT.U_CHAT_SCROLL_BUTTON)
+      </OnMouseDown>
     </Scripts>
   </Button>
 
@@ -164,6 +188,16 @@
     <Anchors>
       <Anchor point="CENTER"/>
     </Anchors>
+    <Layers>
+      <Layer level="OVERLAY">
+        <FontString parentKey="Progress" inherits="GameFontHighlight" justifyH="LEFT" text="">
+          <Anchors>
+            <Anchor point="BOTTOMLEFT" x="15" y="10" />
+          </Anchors>
+          <Size x="200" y="10" />
+        </FontString>
+      </Layer>
+    </Layers>
     <Frames>
       <Frame parentKey="TitleBar" inherits="PanelDragBarTemplate">
         <Size y="32"/>
@@ -257,6 +291,12 @@
                   </Layer>
                 </Layers>
               </Frame>
+							<EditBox parentKey="SearchBox" autoFocus="false" historyLines="1" bytes="64" inherits="SearchBoxTemplate" virtual="true" hidden="true">
+								<Size x="180" y="22"/>
+								<Anchors>
+									<Anchor point="RIGHT" relativeKey="$parent.ViewDropdown" relativePoint="LEFT" x="-30"/>
+								</Anchors>
+							</EditBox>
             </Frames>
           </Frame>
           <Frame parentKey="Events">
@@ -286,6 +326,33 @@
               </EventFrame>
             </Frames>
           </Frame>
+					<Frame parentKey="Search">
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeKey="$parent.Bar" relativePoint="BOTTOMLEFT" y="-2"/>
+							<Anchor point="BOTTOMRIGHT"/>
+						</Anchors>
+						<Frames>
+							<Frame parentKey="ScrollBox" inherits="WowScrollBoxList">
+								<Anchors>
+									<Anchor point="TOPLEFT"/>
+									<Anchor point="BOTTOMRIGHT" x="-25"/>
+								</Anchors>
+								<Layers>
+									<Layer level="BACKGROUND">
+										<Texture>
+											<Color r=".03" g=".03" b=".03" a="1"/>
+										</Texture>
+									</Layer>
+								</Layers>
+							</Frame>
+							<EventFrame parentKey="ScrollBar" inherits="WowTrimScrollBar">
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeKey="$parent.ScrollBox" relativePoint="TOPRIGHT" x="0" y="-3"/>
+									<Anchor point="BOTTOMLEFT" relativeKey="$parent.ScrollBox" relativePoint="BOTTOMRIGHT" x="0" y="0"/>
+								</Anchors>
+							</EventFrame>
+						</Frames>
+					</Frame>
         </Frames>
       </Frame>
       <Frame parentKey="Filter" hidden="true">
