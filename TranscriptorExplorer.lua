@@ -108,7 +108,7 @@ end
 
 function TranscriptorExplorerPanelMixin:TryAddToSearch(elementData, search)
 	local add = false
-	if search:len() < 5 then
+	if search == "" then
 		return false
 	end
 	for word in search:upper():gmatch("([^, ]+)") do
@@ -155,7 +155,7 @@ function TranscriptorExplorerPanelMixin:LoadLog(logName, logData)
 	self.logDataProvider:Flush()
 	self.logData = logData
 	self.Log:Show()
-	self.Log.Events:Show()
+	self:DisplayEvents()
 	self:InitializeLogViewDropdown()
 	self.Log.Bar.ViewDropdown:Show()
 	--self:SelectLogView("total")
@@ -301,42 +301,49 @@ function TranscriptorExplorerPanelMixin:InitializeLog()
 		self.searchDataProvider:Flush()
 
 		local text = self.Log.Bar.SearchBox:GetText()
-		if string.len(text) < 5 then
+		if text == nil or text == "" then
 			self:DisplayEvents()
-		else
-			self:DisplaySearch()
+			return
+		end
+		self:DisplaySearch()
 
-			if not coroutineFrame:IsShown() then
-				co = coroutine.create(function()
-					for _, elementData in self.logDataProvider:Enumerate() do
-						coroutine.yield()
-						self.Progress:SetText("Searching..")
-						self:TryAddToSearch(elementData, text)
-					end
-					self.Progress:SetText("")
-				end)
-				coroutineFrame:Show()
-			end
-
-			local pendingSearch = self.pendingSearch
-			if pendingSearch then
-				self.pendingSearch = nil
-
-				local found = self.Log.Search.ScrollBox:ScrollToElementDataByPredicate(function(elementData)
-					return elementData.id == pendingSearch.id
-				end, ScrollBoxConstants.AlignCenter, ScrollBoxConstants.NoScrollInterpolation)
-
-				if found then
-					local button = self.Log.Search.ScrollBox:FindFrame(found)
-					if button then
-						button:Flash()
-					end
+		if not coroutineFrame:IsShown() then
+			co = coroutine.create(function()
+				for _, elementData in self.logDataProvider:Enumerate() do
+					coroutine.yield()
+					self.Progress:SetText("Searching..")
+					self:TryAddToSearch(elementData, text)
 				end
-			elseif self.Log.Search.ScrollBox:HasScrollableExtent() then
-				self.Log.Search.ScrollBox:ScrollToEnd(ScrollBoxConstants.NoScrollInterpolation)
+				self.Progress:SetText("")
+			end)
+			coroutineFrame:Show()
+		end
+
+		local pendingSearch = self.pendingSearch
+		if pendingSearch then
+			self.pendingSearch = nil
+
+			local found = self.Log.Search.ScrollBox:ScrollToElementDataByPredicate(function(elementData)
+				return elementData.id == pendingSearch.id
+			end, ScrollBoxConstants.AlignCenter, ScrollBoxConstants.NoScrollInterpolation)
+
+			if found then
+				local button = self.Log.Search.ScrollBox:FindFrame(found)
+				if button then
+					button:Flash()
+				end
 			end
+		elseif self.Log.Search.ScrollBox:HasScrollableExtent() then
+			self.Log.Search.ScrollBox:ScrollToEnd(ScrollBoxConstants.NoScrollInterpolation)
 		end
 	end)
+	local function clear()
+		self.Log.Bar.SearchBox:SetText("")
+		self.searchDataProvider:Flush()
+		self:DisplayEvents()
+	end
+	self.Log.Bar.SearchBox:HookScript("OnEscapePressed", clear)
+	self.Log.Bar.SearchBox.clearButton:HookScript("OnClick", clear)
 
 	local function SetOnDataRangeChanged(scrollBox)
 		local function OnDataRangeChanged(sortPending)
