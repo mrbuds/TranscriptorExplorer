@@ -134,7 +134,7 @@ function TranscriptorExplorerPanelMixin:TryAddToSearch(elementData, search)
 	return false
 end
 
-function TranscriptorExplorerPanelMixin:LoadLog(logName, logData)
+function TranscriptorExplorerPanelMixin:LoadLog(logName)
 	-- logData.WIDGET => table
 	-- logData.COMBAT => <><231.50 23:18:18> [event] .....
 	-- logData.total => same
@@ -153,7 +153,7 @@ function TranscriptorExplorerPanelMixin:LoadLog(logName, logData)
 	-- logData.WIDGET
 	self:SetTitle(logName)
 	self.logDataProvider:Flush()
-	self.logData = logData
+	self.logData = TranscriptDB[logName]
 	self.Log:Show()
 	self:DisplayEvents()
 	self:InitializeLogViewDropdown()
@@ -258,12 +258,17 @@ end
 
 function TranscriptorExplorerPanelMixin:InitializeOptions()
 	local function Initializer(dropDown, level)
-		for logName, logData in pairs(TranscriptDB) do
+		local list = {}
+		for logName in pairs(TranscriptDB) do
+			tinsert(list, logName)
+		end
+		table.sort(list)
+		for _, logName in ipairs(list) do
 			local info = UIDropDownMenu_CreateInfo()
 			info.notCheckable = true
 			info.text = logName
 			info.func = function()
-				self:LoadLog(logName, logData)
+				self:LoadLog(logName)
 			end
 			UIDropDownMenu_AddButton(info)
 		end
