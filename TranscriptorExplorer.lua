@@ -2,6 +2,7 @@
 
 local MinPanelWidth = 715
 local MinPanelHeight = 210
+local wowheadsource = "ptr/" or ""
 
 --TranscriptExplorerDB = TranscriptExplorerDB or {}
 --Private.db = TranscriptExplorerDB
@@ -739,6 +740,7 @@ do
 				end
 			end
 		end
+		return 0
 	end
 
 	local menu
@@ -772,6 +774,14 @@ do
 				end,
 				notCheckable = true,
 			})
+			tinsert(menu, {
+				text = "copy spellID on wowhead",
+				func = function()
+					self.EditBox:SetText("https://www.wowhead.com/"..wowheadsource.."spell="..spellID)
+					self.EditBox:Show()
+				end,
+				notCheckable = true,
+			})
 		end
 		local npcID, spawnID = getNpcInfo(elementData.event, elementData.args)
 		if npcID then
@@ -779,6 +789,14 @@ do
 				text = "copy npcID",
 				func = function()
 					self.EditBox:SetText(npcID)
+					self.EditBox:Show()
+				end,
+				notCheckable = true,
+			})
+			tinsert(menu, {
+				text = "copy npcID on wowhead",
+				func = function()
+					self.EditBox:SetText("https://www.wowhead.com/"..wowheadsource.."npc="..npcID)
 					self.EditBox:Show()
 				end,
 				notCheckable = true,
