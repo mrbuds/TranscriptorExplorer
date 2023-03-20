@@ -388,9 +388,10 @@ function TranscriptorExplorerPanelMixin:InitializeLog()
 
 	do
 		local view = CreateScrollBoxListLinearView()
+		local logDataProvider = self.logDataProvider
 		view:SetElementFactory(function(factory, elementData)
 			factory("TranscriptorLogEventButtonTemplate", function(button, elementData)
-				button:Init(elementData)
+				button:Init(elementData, logDataProvider)
 
 				button.HideButton:SetScript("OnMouseDown", function(button, buttonName)
 					AddEventToFilter(self.Filter.ScrollBox, elementData)
@@ -409,9 +410,10 @@ function TranscriptorExplorerPanelMixin:InitializeLog()
 
 	do
 		local view = CreateScrollBoxListLinearView()
+		local searchDataProvider = self.searchDataProvider
 		view:SetElementFactory(function(factory, elementData)
 			factory("TranscriptorLogEventButtonTemplate", function(button, elementData)
-				button:Init(elementData)
+				button:Init(elementData, searchDataProvider)
 
 				button.HideButton:SetScript("OnMouseDown", function(button, buttonName)
 					AddEventToFilter(self.Log.Search.ScrollBox, elementData)
@@ -440,6 +442,47 @@ local function splitargs(args)
 	end
 end
 
+local eventToSpellIDArg = {
+	CLEU = 6,
+	BigWigs_StartBar = 2,
+	BigWigs_Message = 2,
+	UNIT_SPELLCAST_SUCCEEDED = function(args)
+		local line = args[1]
+		local spellID = line:match("%[%[.-([^:]+)]%]")
+		return tonumber(spellID)
+	end,
+	UNIT_SPELLCAST_START = function(args)
+		local line = args[1]
+		local spellID = line:match("%[%[.-([^:]+)]%]")
+		return tonumber(spellID)
+	end,
+	UNIT_SPELLCAST_STOP = function(args)
+		local line = args[1]
+		local spellID = line:match("%[%[.-([^:]+)]%]")
+		return tonumber(spellID)
+	end,
+}
+
+local function getSpellID(event, args)
+	local ret = eventToSpellIDArg[event]
+	if type(ret) == "number" then
+		local spellID = args[ret]
+		return tonumber(spellID)
+	elseif type(ret) == "function" then
+		return ret(args)
+	end
+end
+
+local bannedSpellIds = {
+	[188046] = true, -- Fey Missile
+	[198715] = true, -- Val'kyr Strike
+	[114942] = true, -- Healing Tide
+	[392375] = true, -- Earthen Weapon
+	[389541] = true, -- Claw of the White Tiger
+	[192082] = true, -- Wind Rush
+
+}
+
 function TranscriptorExplorerPanelMixin:LogEvent(category, index)
 	local timeSpent, time, event, args = category[index]:match("^<([0-9%.]+) ([0-9:]+)> %[(.+)%] (.+)$")
 	local splitedargs = { splitargs(args) }
@@ -457,6 +500,10 @@ function TranscriptorExplorerPanelMixin:LogEvent(category, index)
 		end
 	-- skip play spells
 	elseif event:sub(1, 15) == "UNIT_SPELLCAST_" and subevent:sub(1, 12) == "PLAYER_SPELL" then
+		return
+	end
+	local spellID = getSpellID(event, splitedargs)
+	if spellID and bannedSpellIds[spellID] then
 		return
 	end
 	local elementData = {
@@ -501,37 +548,6 @@ local function FormatLine(id, message)
 	return string.format("%s %s", id, message)
 end
 
-local eventToSpellIDArg = {
-	CLEU = 6,
-	BigWigs_StartBar = 2,
-	BigWigs_Message = 2,
-	UNIT_SPELLCAST_SUCCEEDED = function(args)
-		local line = args[1]
-		local spellID = line:match("%[%[.-([^:]+)]%]")
-		return tonumber(spellID)
-	end,
-	UNIT_SPELLCAST_START = function(args)
-		local line = args[1]
-		local spellID = line:match("%[%[.-([^:]+)]%]")
-		return tonumber(spellID)
-	end,
-	UNIT_SPELLCAST_STOP = function(args)
-		local line = args[1]
-		local spellID = line:match("%[%[.-([^:]+)]%]")
-		return tonumber(spellID)
-	end,
-}
-
-local function AddSpellID(event, args)
-	local ret = eventToSpellIDArg[event]
-	if type(ret) == "number" then
-		local spellID = args[ret]
-		return tonumber(spellID)
-	elseif type(ret) == "function" then
-		return ret(args)
-	end
-end
-
 TranscriptorLogEventButtonMixin = {}
 
 function TranscriptorLogEventButtonMixin:OnLoad()
@@ -540,9 +556,195 @@ function TranscriptorLogEventButtonMixin:OnLoad()
 end
 
 do
+	-- context menu
+	local function getNpcInfo(event, args)
+		if event == "CLEU" then
+			local source = args[2]
+			local dest = args[4]
+			local guid = (source:find("^Creature-") and source) or (dest:find("^Creature-") and dest) or nil
+			if guid then
+				local npcID, spawnID = select(6, strsplit('-', guid))
+				return npcID, spawnID
+			end
+		end
+	end
+
+	local function getSpawnIndex(spawnUID)
+		if spawnUID then
+			local spawnIndex = bit.rshift(
+					bit.band(
+							tonumber(
+									string.sub(spawnUID, 1, 5),
+							16),
+					0xffff8),
+			3)
+			return spawnIndex
+		end
+	end
+
+	local function isSimilar(a, b, skipSame)
+		if skipSame == false and a == b then
+			return true
+		end
+		if a.event ~= b.event then
+			return false
+		end
+		-- skip if events happen in same frame
+		if a.time == b.time and skipSame then
+			return false
+		end
+		if a.event == "CLEU" then
+			-- test subevent
+			if a.subevent ~= b.subevent then
+				return false
+			end
+			-- test source
+			if a.args[1] ~= b.args[1] then
+				return false
+			end
+			-- test spellid
+			if a.args[6] ~= b.args[6] then
+				return false
+			end
+		end
+		local aSpellID = getSpellID(a.event, a.args)
+		local bSpellID = getSpellID(b.event, b.args)
+		if aSpellID ~= bSpellID then
+			return false
+		end
+		return true
+	end
+
+	local function getTimeSinceLastSimilarEvent(elementData, dataProvider)
+		local index = dataProvider:FindIndex(elementData)
+		for i, elem in dataProvider:ReverseEnumerate(1, index) do
+			if isSimilar(elementData, elem, true) then
+				return tonumber(elementData.timeSpent) - tonumber(elem.timeSpent)
+			end
+		end
+		return tonumber(elementData.timeSpent)
+	end
+
+	local function getTimeForAllSimilarEvents(elementData, dataProvider, timeBetweenEvents)
+		local outlist = {}
+		local lastTime = 0
+		for _, elem in dataProvider:Enumerate() do
+			if isSimilar(elementData, elem, false) then
+				local time = tonumber(elem.timeSpent)
+				local diff = time - lastTime
+				if diff > 0 then
+					if timeBetweenEvents then
+						table.insert(outlist, diff)
+					else
+						table.insert(outlist, time)
+					end
+				end
+				lastTime = time
+			end
+		end
+		return table.concat(outlist, ", ")
+	end
+
+	local function isCast(elementData)
+		return elementData.event == "UNIT_SPELLCAST_SUCCEEDED"
+		or elementData.event == "UNIT_SPELLCAST_STOP"
+		or elementData.event == "UNIT_SPELLCAST_START"
+		or (elementData.event == "CLEU" and (
+			elementData.subevent == "SPELL_CAST_SUCCESS"
+			or elementData.subevent == "SPELL_CAST_START")
+		)
+	end
+
+	local function getCastLength(elementData, dataProvider)
+		if elementData.event == "UNIT_SPELLCAST_SUCCEEDED"
+		or elementData.event == "UNIT_SPELLCAST_STOP"
+		then
+			local aSpellID = getSpellID(elementData.event, elementData.args)
+			local index = dataProvider:FindIndex(elementData)
+			for _, elem in dataProvider:ReverseEnumerate(1, index) do
+				if elem.event == "UNIT_SPELLCAST_START" then
+					local bSpellID = getSpellID(elem.event, elem.args)
+					if aSpellID == bSpellID then
+						return tonumber(elementData.timeSpent) - tonumber(elem.timeSpent)
+					end
+				end
+			end
+		elseif elementData.event == "UNIT_SPELLCAST_START" then
+			local aSpellID = getSpellID(elementData.event, elementData.args)
+			local index = dataProvider:FindIndex(elementData)
+			for _, elem in dataProvider:Enumerate(index) do
+				if elem.event == "UNIT_SPELLCAST_STOP" then
+					local bSpellID = getSpellID(elem.event, elem.args)
+					if aSpellID == bSpellID then
+						return tonumber(elem.timeSpent) - tonumber(elementData.timeSpent)
+					end
+				end
+			end
+		elseif elementData.event == "CLEU" then
+			if elementData.subevent == "SPELL_CAST_SUCCESS" then
+				local index = dataProvider:FindIndex(elementData)
+				for _, elem in dataProvider:ReverseEnumerate(1, index) do
+					if elem.event == "CLEU"
+					and elem.subevent == "SPELL_CAST_START"
+					and elem.args[6] == elementData.args[6]
+					then
+						return tonumber(elementData.timeSpent) - tonumber(elem.timeSpent)
+					end
+				end
+			elseif elementData.subevent == "SPELL_CAST_START" then
+				local index = dataProvider:FindIndex(elementData)
+				for _, elem in dataProvider:Enumerate(index) do
+					if elem.event == "CLEU"
+					and elem.subevent == "SPELL_CAST_SUCCESS"
+					and elem.args[6] == elementData.args[6]
+					then
+						return tonumber(elem.timeSpent) - tonumber(elementData.timeSpent)
+					end
+				end
+			end
+		end
+		return 0
+	end
+
+	local function isAura(elementData)
+		return elementData.event == "CLEU" and (
+			elementData.subevent == "SPELL_AURA_APPLIED"
+			or elementData.subevent == "SPELL_AURA_REMOVED"
+		)
+	end
+
+	local function getAuraLength(elementData, dataProvider)
+		if elementData.event == "CLEU" then
+			if elementData.subevent == "SPELL_AURA_APPLIED" then
+				local index = dataProvider:FindIndex(elementData)
+				for _, elem in dataProvider:Enumerate(index) do
+					if elem.event == "CLEU"
+					and elem.subevent == "SPELL_AURA_REMOVED"
+					and elem.args[6] == elementData.args[6]
+					and elem.args[4] == elementData.args[4]
+					then
+						return tonumber(elem.timeSpent) - tonumber(elementData.timeSpent)
+					end
+				end
+			elseif elementData.subevent == "SPELL_AURA_REMOVED" then
+				local index = dataProvider:FindIndex(elementData)
+				for _, elem in dataProvider:ReverseEnumerate(1, index) do
+					if elem.event == "CLEU"
+					and elem.subevent == "SPELL_AURA_APPLIED"
+					and elem.args[6] == elementData.args[6]
+					and elem.args[4] == elementData.args[4]
+					then
+						return tonumber(elementData.timeSpent) - tonumber(elem.timeSpent)
+					end
+				end
+			end
+		end
+	end
+
 	local menu
 	function TranscriptorLogEventButtonMixin:CreateContext()
 		local elementData = self.GetElementData()
+		local dataProvider = self.dataProvider
 		menu = {
 			{
 				text = "copy line",
@@ -560,12 +762,85 @@ do
 				notCheckable = true,
 			},
 		}
-		local spellID = AddSpellID(elementData.event, elementData.args)
+		local spellID = getSpellID(elementData.event, elementData.args)
 		if spellID then
 			tinsert(menu, {
 				text = "copy spellID",
 				func = function()
 					self.EditBox:SetText(spellID)
+					self.EditBox:Show()
+				end,
+				notCheckable = true,
+			})
+		end
+		local npcID, spawnID = getNpcInfo(elementData.event, elementData.args)
+		if npcID then
+			tinsert(menu, {
+				text = "copy npcID",
+				func = function()
+					self.EditBox:SetText(npcID)
+					self.EditBox:Show()
+				end,
+				notCheckable = true,
+			})
+		end
+		if spawnID then
+			local spawnIndex = getSpawnIndex(spawnID)
+			if spawnIndex then
+				tinsert(menu, {
+					text = "copy spawnIndex",
+					func = function()
+						self.EditBox:SetText(spawnIndex)
+						self.EditBox:Show()
+					end,
+					notCheckable = true,
+				})
+			end
+		end
+		tinsert(menu, {
+			text = "time since last similar event",
+			func = function()
+				local time = getTimeSinceLastSimilarEvent(elementData, dataProvider)
+				self.EditBox:SetText(time)
+				self.EditBox:Show()
+			end,
+			notCheckable = true,
+		})
+		tinsert(menu, {
+			text = "time between all similar events",
+			func = function()
+				local time = getTimeForAllSimilarEvents(elementData, dataProvider, true)
+				self.EditBox:SetText(time)
+				self.EditBox:Show()
+			end,
+			notCheckable = true,
+		})
+		tinsert(menu, {
+			text = "time for all similar events",
+			func = function()
+				local time = getTimeForAllSimilarEvents(elementData, dataProvider, false)
+				self.EditBox:SetText(time)
+				self.EditBox:Show()
+			end,
+			notCheckable = true,
+		})
+		if isCast(elementData) then
+			tinsert(menu, {
+				text = "cast length",
+				func = function()
+					local time = getCastLength(elementData, dataProvider)
+					self.EditBox:SetText(time)
+					self.EditBox:Show()
+				end,
+				notCheckable = true,
+			})
+		end
+		if isAura(elementData) then
+			tinsert(menu, {
+				text = "aura length",
+				func = function()
+					local time = getAuraLength(elementData, dataProvider)
+					self.EditBox:SetText(time)
 					self.EditBox:Show()
 				end,
 				notCheckable = true,
@@ -627,12 +902,13 @@ local function AddLineArguments(args)
 	return table.concat(words, ", ")
 end
 
-function TranscriptorLogEventButtonMixin:Init(elementData)
+function TranscriptorLogEventButtonMixin:Init(elementData, dataProvider)
+	self.dataProvider = dataProvider
 	local id = FormatLogID(elementData.id)
 	local lineWithoutArguments = FormatLine(id, elementData.event)
 
 	local arguments = AddLineArguments(elementData.args)
-	local spellID = AddSpellID(elementData.event, elementData.args)
+	local spellID = getSpellID(elementData.event, elementData.args)
 	if spellID then
 		self.Icon.IconTexture:SetTexture(GetSpellTexture(spellID))
 		self.Icon.spellID = spellID
