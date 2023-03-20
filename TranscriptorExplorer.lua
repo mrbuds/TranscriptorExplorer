@@ -481,7 +481,8 @@ local bannedSpellIds = {
 	[392375] = true, -- Earthen Weapon
 	[389541] = true, -- Claw of the White Tiger
 	[192082] = true, -- Wind Rush
-
+	[197509] = true, -- Bloodworm
+	[55078] = true, -- Blood Plague
 }
 
 function TranscriptorExplorerPanelMixin:LogEvent(category, index)
@@ -767,7 +768,16 @@ do
 		local spellID = getSpellID(elementData.event, elementData.args)
 		if spellID then
 			tinsert(menu, {
-				text = "copy spellID",
+				text = "spell name",
+				func = function()
+					local name = GetSpellInfo(spellID)
+					self.EditBox:SetText(name or "")
+					self.EditBox:Show()
+				end,
+				notCheckable = true,
+			})
+			tinsert(menu, {
+				text = "spell ID",
 				func = function()
 					self.EditBox:SetText(spellID)
 					self.EditBox:Show()
@@ -775,9 +785,18 @@ do
 				notCheckable = true,
 			})
 			tinsert(menu, {
-				text = "copy spellID on wowhead",
+				text = "spell ID on wowhead",
 				func = function()
 					self.EditBox:SetText("https://www.wowhead.com/"..wowheadsource.."spell="..spellID)
+					self.EditBox:Show()
+				end,
+				notCheckable = true,
+			})
+			tinsert(menu, {
+				text = "icon ID",
+				func = function()
+					local iconID = select(3, GetSpellInfo(spellID))
+					self.EditBox:SetText(iconID or "")
 					self.EditBox:Show()
 				end,
 				notCheckable = true,
@@ -786,7 +805,7 @@ do
 		local npcID, spawnID = getNpcInfo(elementData.event, elementData.args)
 		if npcID then
 			tinsert(menu, {
-				text = "copy npcID",
+				text = "npc ID",
 				func = function()
 					self.EditBox:SetText(npcID)
 					self.EditBox:Show()
@@ -794,7 +813,7 @@ do
 				notCheckable = true,
 			})
 			tinsert(menu, {
-				text = "copy npcID on wowhead",
+				text = "npc ID on wowhead",
 				func = function()
 					self.EditBox:SetText("https://www.wowhead.com/"..wowheadsource.."npc="..npcID)
 					self.EditBox:Show()
@@ -806,7 +825,7 @@ do
 			local spawnIndex = getSpawnIndex(spawnID)
 			if spawnIndex then
 				tinsert(menu, {
-					text = "copy spawnIndex",
+					text = "spawnIndex",
 					func = function()
 						self.EditBox:SetText(spawnIndex)
 						self.EditBox:Show()
