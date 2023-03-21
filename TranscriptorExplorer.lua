@@ -993,3 +993,8 @@ function TranscriptorFilterButtonMixin:ToggleEnabledState()
 	elementData.enabled = not elementData.enabled
 	self:UpdateEnabledState()
 end
+
+SLASH_TRANSCRIPTOREXPLORER1 = "/te"
+SlashCmdList.TRANSCRIPTOREXPLORER = function()
+	TranscriptorExplorer:Show()
+end
